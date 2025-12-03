@@ -1,13 +1,22 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>3D Particle System with Hand Control (Three.js)</title>
     <style>
         /* --- General Setup & Layout --- */
-        body { margin: 0; overflow: hidden; background-color: #1a1a1a; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-        canvas { display: block; }
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #1a1a1a;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        canvas {
+            display: block;
+        }
 
         /* --- Control Panel Styling --- */
         #controls {
@@ -15,31 +24,38 @@
             top: 20px;
             right: 20px;
             padding: 15px;
-            background: rgba(34, 34, 34, 0.85); /* Dark, slightly transparent background */
+            background: rgba(34, 34, 34, 0.85);
+            /* Dark, slightly transparent background */
             border-radius: 10px;
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
             color: #f0f0f0;
             width: 280px;
             z-index: 100;
         }
+
         h2 {
             margin-top: 0;
             border-bottom: 1px solid #444;
             padding-bottom: 8px;
             margin-bottom: 15px;
             font-size: 1.2em;
-            color: #4CAF50; /* A touch of color for the title */
+            color: #4CAF50;
+            /* A touch of color for the title */
         }
+
         .control-group {
             margin-bottom: 15px;
         }
+
         label {
             display: block;
             margin-bottom: 5px;
             font-weight: bold;
             font-size: 0.9em;
         }
-        select, input[type="color"] {
+
+        select,
+        input[type="color"] {
             width: 100%;
             padding: 8px;
             margin-top: 5px;
@@ -48,16 +64,19 @@
             background: #333;
             color: #f0f0f0;
             box-sizing: border-box;
-            -webkit-appearance: none; /* Remove default browser styling */
+            -webkit-appearance: none;
+            /* Remove default browser styling */
             -moz-appearance: none;
             appearance: none;
         }
+
         input[type="color"] {
             height: 40px;
             padding: 0;
             border: 3px solid #555;
             cursor: pointer;
         }
+
         /* Style for the video stream (optional, for debugging/visualization) */
         #video-container {
             position: absolute;
@@ -71,14 +90,17 @@
             overflow: hidden;
             z-index: 99;
         }
+
         #webcam-video {
             width: 100%;
             height: 100%;
             object-fit: cover;
-            transform: scaleX(-1); /* Flip video for natural mirror effect */
+            transform: scaleX(-1);
+            /* Flip video for natural mirror effect */
         }
     </style>
 </head>
+
 <body>
 
     <div id="container"></div>
@@ -144,7 +166,7 @@
         let lastHandPosition = null; // Used to calculate velocity
         const positionSmoothing = 0.15; // Smoothing factor for position following
         const positionScale = 200; // Scale factor to convert normalized hand position to 3D space
-        
+
         // Gesture smoothing to prevent flickering
         let gestureHistory = [];
         const gestureHistorySize = 5; // Number of frames to consider for smoothing
@@ -155,7 +177,7 @@
             galaxy: (pos, i) => {
                 // Spiral galaxy with central bulge and spiral arms
                 const isBulge = Math.random() < 0.15; // 15% in central bulge
-                
+
                 if (isBulge) {
                     // Central bulge - dense sphere
                     const r = Math.random() * 25;
@@ -169,11 +191,11 @@
                     const spiralTightness = 0.3;
                     const r = 20 + t * 15; // Radius increases with angle
                     const angle = t + armIndex * Math.PI + Math.random() * 0.5; // Spiral angle
-                    
+
                     // Add some thickness to the disk
                     const diskThickness = 8;
                     const z = (Math.random() - 0.5) * diskThickness * (1 - r / 100); // Thinner at edges
-                    
+
                     const x = r * Math.cos(angle) * (1 + Math.random() * 0.3);
                     const y = r * Math.sin(angle) * (1 + Math.random() * 0.3);
                     pos.set(x, y, z);
@@ -190,7 +212,7 @@
             barred: (pos, i) => {
                 // Barred spiral galaxy
                 const isBar = Math.random() < 0.2; // 20% in central bar
-                
+
                 if (isBar) {
                     // Central bar
                     const barLength = 40;
@@ -311,29 +333,29 @@
             const distance = Math.sqrt(position.x * position.x + position.y * position.y + position.z * position.z);
             const maxDistance = 100; // Approximate max distance
             const normalizedDist = Math.min(distance / maxDistance, 1.0);
-            
+
             // Galaxy color palette - more realistic
             const centerColors = [
                 new THREE.Color(1.0, 0.95, 0.85),    // Warm white (old stars in bulge)
                 new THREE.Color(1.0, 0.9, 0.75),     // Yellow-white
                 new THREE.Color(0.95, 0.85, 0.7),   // Golden
             ];
-            
+
             const armColors = [
                 new THREE.Color(0.9, 0.95, 1.0),     // Blue-white (young stars)
                 new THREE.Color(0.7, 0.85, 1.0),    // Light blue
                 new THREE.Color(0.5, 0.7, 1.0),      // Blue
                 new THREE.Color(0.6, 0.8, 1.0),      // Cyan-blue
             ];
-            
+
             const outerColors = [
                 new THREE.Color(0.4, 0.5, 0.8),      // Deep blue
                 new THREE.Color(0.5, 0.4, 0.7),     // Purple-blue
                 new THREE.Color(0.6, 0.5, 0.8),     // Lavender
             ];
-            
+
             let finalColor;
-            
+
             // Center region (bulge) - warm colors
             if (normalizedDist < 0.25) {
                 const colorIndex = Math.floor(Math.random() * centerColors.length);
@@ -355,19 +377,55 @@
                 // Outer regions are dimmer
                 finalColor.multiplyScalar(0.7 + Math.random() * 0.2);
             }
-            
+
             // Add some random variation for individual stars
             const starVariation = 0.1;
             finalColor.r += (Math.random() - 0.5) * starVariation;
             finalColor.g += (Math.random() - 0.5) * starVariation;
             finalColor.b += (Math.random() - 0.5) * starVariation;
-            
-            // Clamp values to valid range
-            finalColor.r = Math.max(0.4, Math.min(1.0, finalColor.r));
-            finalColor.g = Math.max(0.4, Math.min(1.0, finalColor.g));
-            finalColor.b = Math.max(0.4, Math.min(1.0, finalColor.b));
-            
+
+            // Clamp to valid range
+            finalColor.r = Math.max(0.0, Math.min(1.0, finalColor.r));
+            finalColor.g = Math.max(0.0, Math.min(1.0, finalColor.g));
+            finalColor.b = Math.max(0.0, Math.min(1.0, finalColor.b));
+
             return finalColor;
+        }
+
+        // --- PARTICLE SPRITE TEXTURE ---
+        function createStarTexture() {
+            const size = 128;
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+
+            const center = size / 2;
+            const radius = size / 2;
+
+            const gradient = ctx.createRadialGradient(
+                center,
+                center,
+                0,
+                center,
+                center,
+                radius
+            );
+
+            gradient.addColorStop(0.0, 'rgba(255,255,255,1)');
+            gradient.addColorStop(0.3, 'rgba(255,255,255,0.9)');
+            gradient.addColorStop(0.6, 'rgba(255,255,255,0.25)');
+            gradient.addColorStop(1.0, 'rgba(255,255,255,0)');
+
+            ctx.clearRect(0, 0, size, size);
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, size, size);
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.needsUpdate = true;
+            texture.magFilter = THREE.LinearFilter;
+            texture.minFilter = THREE.LinearMipMapLinearFilter;
+            return texture;
         }
 
         // --- PARTICLE SYSTEM CREATION ---
@@ -390,7 +448,7 @@
                 positions[i * 3] = position.x;
                 positions[i * 3 + 1] = position.y;
                 positions[i * 3 + 2] = position.z;
-                
+
                 // Assign universe-like gradient color to each particle
                 const color = getUniverseColor(position);
                 colors[i * 3] = color.r;
@@ -404,7 +462,10 @@
             // Material with vertex colors enabled for galaxy gradients
             material = new THREE.PointsMaterial({
                 color: 0xffffff, // White base (multiplies with vertex colors)
-                size: 1.8, // Optimal size for galaxy (slightly smaller for more stars)
+                size: 1.9, // Slightly larger for textured stars
+                map: createStarTexture(), // Soft radial sprite
+                alphaTest: 0.01,
+                depthWrite: false,
                 blending: THREE.AdditiveBlending,
                 transparent: true,
                 sizeAttenuation: true,
@@ -466,16 +527,16 @@
             // Middle: 12 (tip), 10 (PIP)
             // Ring: 16 (tip), 14 (PIP)
             // Pinky: 20 (tip), 18 (PIP)
-            
+
             const thumbExtended = isFingerExtended(handLandmarks, 4, 3);
             const indexExtended = isFingerExtended(handLandmarks, 8, 6);
             const middleExtended = isFingerExtended(handLandmarks, 12, 10);
             const ringExtended = isFingerExtended(handLandmarks, 16, 14);
             const pinkyExtended = isFingerExtended(handLandmarks, 20, 18);
-            
+
             // Count extended fingers (excluding thumb for more reliable detection)
             const extendedFingers = [indexExtended, middleExtended, ringExtended, pinkyExtended].filter(Boolean).length;
-            
+
             // Open hand: 3-4 fingers extended (allowing for some flexibility)
             if (extendedFingers >= 3) {
                 return 'open';
@@ -500,11 +561,11 @@
             if (gestureHistory.length > gestureHistorySize) {
                 gestureHistory.shift();
             }
-            
+
             // Count occurrences of each gesture
             const counts = { 'open': 0, 'closed': 0, 'neutral': 0 };
             gestureHistory.forEach(g => counts[g]++);
-            
+
             // Return the most common gesture in recent history
             let maxCount = 0;
             let result = 'neutral';
@@ -514,7 +575,7 @@
                     result = gesture;
                 }
             }
-            
+
             return result;
         }
 
@@ -540,10 +601,10 @@
             // 1. Galaxy rotation - smooth, majestic spin
             particles.rotation.y += 0.0008; // Main rotation around Y axis
             particles.rotation.z += 0.0001; // Slight tilt rotation for 3D effect
-            
+
             // 2. Real-time Gesture Response (Scaling/Expansion)
             let targetScale = 1.0;
-            
+
             // Two hands: scale based on distance between hands
             if (handGesture === 'neutral' && handDistance !== 0.5) {
                 const minScale = 0.5;
@@ -556,16 +617,16 @@
             } else if (handGesture === 'closed') {
                 targetScale = 0.7; // Shrink when hand is closed
             }
-            
+
             particles.scale.lerp(new THREE.Vector3(targetScale, targetScale, targetScale), 0.1);
-            
+
             // 3. Open/Close Hand Response (Color Tint - uses one hand)
             // Use material color as a tint/multiplier over vertex colors for gradient effect
             let targetTintColor;
             if (handGesture === 'closed') {
                 // Closed Fist: Add red tint to universe colors
                 targetTintColor = new THREE.Color(1.3, 0.5, 0.5);
-                material.size = 1.0; 
+                material.size = 1.0;
             } else if (handGesture === 'open') {
                 // Open Palm: Add bright cyan/blue tint to universe colors
                 targetTintColor = new THREE.Color(0.5, 1.0, 1.3);
@@ -577,12 +638,12 @@
             }
             // Smoothly transition to target tint color
             material.color.lerp(targetTintColor, 0.15);
-            
+
             // Ensure material color never goes too low (minimum 0.3 to keep particles visible)
             material.color.r = Math.max(0.3, material.color.r);
             material.color.g = Math.max(0.3, material.color.g);
             material.color.b = Math.max(0.3, material.color.b);
-            
+
             // 4. Direct Hand Position Control - particles follow hand movement
             particles.position.lerp(targetHandPosition, positionSmoothing);
 
@@ -629,8 +690,8 @@
                 const dy = wrist1.y - wrist2.y;
                 let distance = Math.sqrt(dx * dx + dy * dy);
 
-                const MIN_DIST = 0.05; 
-                const MAX_DIST = 0.7;  
+                const MIN_DIST = 0.05;
+                const MAX_DIST = 0.7;
                 handDistance = Math.max(0, Math.min(1, (distance - MIN_DIST) / (MAX_DIST - MIN_DIST)));
 
                 // Use average position of both hands for movement
@@ -647,10 +708,10 @@
                 handGesture = 'neutral';
                 gestureHistory = []; // Clear gesture history when two hands detected
 
-            // --- ONE HAND LOGIC (Open/Closed and Movement) ---
+                // --- ONE HAND LOGIC (Open/Closed and Movement) ---
             } else if (landmarks && landmarks.length === 1) {
                 const hand = landmarks[0];
-                
+
                 // A. Detect Open/Close with smoothing
                 const detectedGesture = detectClenchedFist(hand);
                 handGesture = smoothGesture(detectedGesture);
@@ -663,7 +724,7 @@
 
             } else {
                 // No hands detected - smoothly return to center
-                handDistance = 0.5; 
+                handDistance = 0.5;
                 handGesture = smoothGesture('neutral');
                 targetHandPosition.lerp(new THREE.Vector3(0, 0, 0), 0.1);
                 lastHandPosition = null;
@@ -676,4 +737,5 @@
     </script>
 
 </body>
+
 </html>
