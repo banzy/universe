@@ -159,6 +159,14 @@
         let currentTemplate = 'galaxy';
         const particleCount = 20000;
 
+        // Mouse controls
+        let mouseX = 0, mouseY = 0;
+        let targetRotationX = 0, targetRotationY = 0;
+        let targetCameraZ = 250;
+        let targetCameraX = 0, targetCameraY = 0;
+        let isMouseDown = false;
+        let previousMouseX = 0, previousMouseY = 0;
+
         // Hand tracking variables
         let handDistance = 1.0; // Normalized distance (0 to 1) between two hands (for SCALING)
         let handGesture = 'neutral'; // Current gesture: 'open', 'closed', or 'neutral' (for COLOR/PARTICLE SIZE)
@@ -301,12 +309,15 @@
 
             // Camera
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.z = 250;
+            camera.position.z = targetCameraZ;
 
             // Renderer
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             document.body.appendChild(renderer.domElement);
+
+            // Mouse event listeners
+            setupMouseControls();
 
             // Create initial particle system
             createParticles();
@@ -318,6 +329,66 @@
 
             // Start the animation loop
             animate();
+        }
+
+        // --- MOUSE CONTROLS ---
+        function setupMouseControls() {
+            // Mouse movement for rotation
+            document.addEventListener('mousemove', onMouseMove);
+
+            // Mouse down/up for drag control
+            renderer.domElement.addEventListener('mousedown', onMouseDown);
+            renderer.domElement.addEventListener('mouseup', onMouseUp);
+
+            // Scroll wheel for zoom
+            renderer.domElement.addEventListener('wheel', onMouseWheel);
+        }
+
+        function onMouseMove(event) {
+            mouseX = (event.clientX - window.innerWidth / 2) / (window.innerWidth / 2);
+            mouseY = (event.clientY - window.innerHeight / 2) / (window.innerHeight / 2);
+
+            if (isMouseDown) {
+                // Drag to rotate the particle system AND move camera
+                const deltaX = event.clientX - previousMouseX;
+                const deltaY = event.clientY - previousMouseY;
+
+                // Rotate particles
+                targetRotationY += deltaX * 0.01;
+                targetRotationX += deltaY * 0.01;
+
+                // Move camera orbit around particles
+                const moveSpeed = 2;
+                targetCameraX += deltaX * moveSpeed;
+                targetCameraY -= deltaY * moveSpeed; // Invert for natural movement
+
+                previousMouseX = event.clientX;
+                previousMouseY = event.clientY;
+            }
+        }
+
+        function onMouseDown(event) {
+            isMouseDown = true;
+            previousMouseX = event.clientX;
+            previousMouseY = event.clientY;
+        }
+
+        function onMouseUp(event) {
+            isMouseDown = false;
+        }
+
+        function onMouseWheel(event) {
+            event.preventDefault();
+
+            // Zoom in/out with scroll wheel
+            const zoomSpeed = 10;
+            if (event.deltaY > 0) {
+                // Scroll down - zoom out
+                targetCameraZ = Math.min(targetCameraZ + zoomSpeed, 500);
+            } else {
+                // Scroll up - zoom in
+                targetCameraZ = Math.max(targetCameraZ - zoomSpeed, 50);
+            }
         }
 
         /**
@@ -598,9 +669,21 @@
         function animate() {
             requestAnimationFrame(animate);
 
-            // 1. Galaxy rotation - smooth, majestic spin
-            particles.rotation.y += 0.0008; // Main rotation around Y axis
-            particles.rotation.z += 0.0001; // Slight tilt rotation for 3D effect
+            // 1. Apply mouse controls
+            // Smooth camera zoom and position
+            camera.position.z += (targetCameraZ - camera.position.z) * 0.1;
+            camera.position.x += (targetCameraX - camera.position.x) * 0.05;
+            camera.position.y += (targetCameraY - camera.position.y) * 0.05;
+
+            // Apply mouse rotation when dragging
+            if (isMouseDown) {
+                particles.rotation.x += (targetRotationX - particles.rotation.x) * 0.05;
+                particles.rotation.y += (targetRotationY - particles.rotation.y) * 0.05;
+            } else {
+                // Auto-rotation when not dragging
+                particles.rotation.y += 0.0008; // Main rotation around Y axis
+                particles.rotation.z += 0.0001; // Slight tilt rotation for 3D effect
+            }
 
             // 2. Real-time Gesture Response (Scaling/Expansion)
             let targetScale = 1.0;
