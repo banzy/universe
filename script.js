@@ -1,6 +1,8 @@
 // --- Global Variables ---
 let scene, camera, renderer;
 let particles, geometry, material;
+let basePositions; // Store the original shape positions
+let spherePositions; // Store the compressed sphere positions
 let currentTemplate = 'galaxy';
 const particleCount = 20000;
 
@@ -23,6 +25,10 @@ const positionScale = 200; // Scale factor to convert normalized hand position t
 // Gesture smoothing to prevent flickering
 let gestureHistory = [];
 const gestureHistorySize = 5; // Number of frames to consider for smoothing
+
+// Template cycling variables
+let lastTemplateChangeTime = 0;
+const TEMPLATE_CHANGE_COOLDOWN = 1000; // 1 second cooldown
 
 // --- PARTICLE TEMPLATE DATA ---
 // Functions to generate initial particle positions based on a shape.
@@ -145,6 +151,7 @@ const templates = {
         );
     }
 };
+const templateKeys = Object.keys(templates);
 
 // --- THREE.JS INITIALIZATION ---
 function init() {
@@ -372,6 +379,23 @@ function createParticles() {
         colors[i * 3 + 2] = color.b;
     }
 
+    // Save base positions for morphing back
+    basePositions = new Float32Array(positions);
+    
+    // Pre-calculate compressed sphere positions
+    spherePositions = new Float32Array(particleCount * 3);
+    const tempVec = new THREE.Vector3();
+    for (let i = 0; i < particleCount; i++) {
+        tempVec.setFromSphericalCoords(
+            Math.random() * 30, // Small dense sphere
+            Math.acos(Math.random() * 2 - 1),
+            Math.random() * Math.PI * 2
+        );
+        spherePositions[i * 3] = tempVec.x;
+        spherePositions[i * 3 + 1] = tempVec.y;
+        spherePositions[i * 3 + 2] = tempVec.z;
+    }
+
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
@@ -413,6 +437,31 @@ function onWindowResize() {
     renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
+
+/**
+ * Explodes the particles outward without changing the underlying template state.
+ */
+function explodeUniverse() {
+    const positions = particles.geometry.attributes.position.array;
+    const count = positions.length / 3;
+    const tempPos = new THREE.Vector3();
+
+    for (let i = 0; i < count; i++) {
+        // Random spherical explosion
+        tempPos.setFromSphericalCoords(
+            Math.random() * 300 + 50, // Huge radius for explosion
+            Math.acos(Math.random() * 2 - 1),
+            Math.random() * Math.PI * 2
+        );
+        
+        positions[i * 3] = tempPos.x;
+        positions[i * 3 + 1] = tempPos.y;
+        positions[i * 3 + 2] = tempPos.z;
+    }
+    
+    particles.geometry.attributes.position.needsUpdate = true;
+}
+
 // --- GESTURE DETECTION FUNCTIONS ---
 
 /**
@@ -432,11 +481,11 @@ function isFingerExtended(handLandmarks, tipIndex, pipIndex) {
 
 /**
  * Improved gesture detection using multiple fingers.
- * Checks if hand is open (all fingers extended) or closed (fingers curled).
+ * Checks if hand is open, closed, or making specific signs.
  * @param {Array<Object>} handLandmarks - The 21 hand landmarks from MediaPipe.
- * @returns {string} 'open', 'closed', or 'neutral'
+ * @returns {string} 'open', 'closed', 'peace', or 'neutral'
  */
-function detectClenchedFist(handLandmarks) {
+function detectGesture(handLandmarks) {
     // MediaPipe hand landmark indices:
     // Thumb: 4 (tip), 3 (PIP)
     // Index: 8 (tip), 6 (PIP)
@@ -453,11 +502,17 @@ function detectClenchedFist(handLandmarks) {
     // Count extended fingers (excluding thumb for more reliable detection)
     const extendedFingers = [indexExtended, middleExtended, ringExtended, pinkyExtended].filter(Boolean).length;
 
+    // Peace Sign: Index & Middle extended, Ring curled.
+    // (We ignore pinky state to be more forgiving, as it's hard to curl independently for some)
+    if (indexExtended && middleExtended && !ringExtended) {
+        return 'peace';
+    }
+
     // Open hand: 3-4 fingers extended (allowing for some flexibility)
     if (extendedFingers >= 3) {
         return 'open';
     }
-    // Closed fist: 0-1 fingers extended
+    // Closed fist: 0-1 fingers extended (allows for thumb or one stray finger)
     else if (extendedFingers <= 1) {
         return 'closed';
     }
@@ -479,8 +534,10 @@ function smoothGesture(newGesture) {
     }
 
     // Count occurrences of each gesture
-    const counts = { 'open': 0, 'closed': 0, 'neutral': 0 };
-    gestureHistory.forEach(g => counts[g]++);
+    const counts = { 'open': 0, 'closed': 0, 'neutral': 0, 'peace': 0 };
+    gestureHistory.forEach(g => {
+        if (counts[g] !== undefined) counts[g]++;
+    });
 
     // Return the most common gesture in recent history
     let maxCount = 0;
@@ -552,11 +609,11 @@ function animate() {
     // Use material color as a tint/multiplier over vertex colors for gradient effect
     let targetTintColor;
     if (handGesture === 'closed') {
-        // Closed Fist: Add red tint to universe colors
+        // Closed Fist: Red tint (COMPRESSING)
         targetTintColor = new THREE.Color(1.3, 0.5, 0.5);
         material.size = 1.0;
     } else if (handGesture === 'open') {
-        // Open Palm: Add bright cyan/blue tint to universe colors
+        // Open Palm: Cyan tint (EXPANDING)
         targetTintColor = new THREE.Color(0.5, 1.0, 1.3);
         material.size = 3.0;
     } else {
@@ -572,10 +629,36 @@ function animate() {
     material.color.g = Math.max(0.3, material.color.g);
     material.color.b = Math.max(0.3, material.color.b);
 
-    // 4. Direct Hand Position Control - particles follow hand movement
+    // 4. Peace Sign Response (Explode Universe)
+    if (handGesture === 'peace') {
+        explodeUniverse();
+    }
+    
+    // 5. Gesture Responses (Morphing)
+    const currentPositions = particles.geometry.attributes.position.array;
+    const count = particleCount; // Optimization
+    const morphSpeed = 0.08; // Slightly slower for dramatic effect
+    
+    if (handGesture === 'closed') {
+        // ✊ CLOSED FIST: Morph into compressed sphere (The "Reset" / "Big Crunch")
+        for(let i = 0; i < count * 3; i++) {
+            currentPositions[i] += (spherePositions[i] - currentPositions[i]) * morphSpeed;
+        }
+        particles.geometry.attributes.position.needsUpdate = true;
+    } 
+    else if (handGesture === 'open') { 
+        // ✋ OPEN HAND: Reform the Galaxy (Return to original shape)
+        for(let i = 0; i < count * 3; i++) {
+            currentPositions[i] += (basePositions[i] - currentPositions[i]) * morphSpeed;
+        }
+        particles.geometry.attributes.position.needsUpdate = true;
+    }
+    // NEUTRAL: Do nothing. Particles stay where they are (e.g., floating after explosion).
+
+    // 6. Direct Hand Position Control - particles follow hand movement
     particles.position.lerp(targetHandPosition, positionSmoothing);
 
-    // 5. Render
+    // 6. Render
     renderer.render(scene, camera);
 }
 
@@ -640,8 +723,8 @@ function onResults(results) {
     } else if (landmarks && landmarks.length === 1) {
         const hand = landmarks[0];
 
-        // A. Detect Open/Close with smoothing
-        const detectedGesture = detectClenchedFist(hand);
+        // A. Detect Open/Close/Peace with smoothing
+        const detectedGesture = detectGesture(hand);
         handGesture = smoothGesture(detectedGesture);
 
         // B. Update hand position for particle movement
