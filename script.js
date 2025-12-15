@@ -5,7 +5,7 @@ let bgParticles, bgGeometry, bgMaterial; // Background stars
 let basePositions; // Store the original shape positions
 let spherePositions; // Store the compressed sphere positions
 let currentTemplate = 'galaxy';
-const particleCount = 20000;
+const particleCount = 35000;
 
 // Mouse controls
 let mouseX = 0, mouseY = 0;
@@ -22,6 +22,7 @@ let targetHandPosition = new THREE.Vector3(0, 0, 0); // Target position for part
 let targetHandRotationZ = 0; // Target Z-rotation based on hand roll
 let targetHandRotationY = 0; // Target Y-rotation based on hand yaw
 let lastHandPosition = null; // Used to calculate velocity
+let time = 0; // Animation time for plasma effect
 const positionSmoothing = 0.15; // Smoothing factor for position following
 const rotationSmoothing = 0.1; // Smoothing factor for rotation
 const positionScale = 200; // Scale factor to convert normalized hand position to 3D space
@@ -667,6 +668,7 @@ function getHandYaw(handLandmarks) {
 // --- ANIMATION LOOP ---
 function animate() {
     requestAnimationFrame(animate);
+    time += 0.05; // Increment time for animation
 
     // 1. Apply mouse controls
     // Smooth camera zoom and position
@@ -759,9 +761,45 @@ function animate() {
     const morphSpeed = 0.08; // Slightly slower for dramatic effect
     
     if (handGesture === 'closed') {
-        // ✊ CLOSED FIST: Morph into compressed sphere (The "Reset" / "Big Crunch")
-        for(let i = 0; i < count * 3; i++) {
-            currentPositions[i] += (spherePositions[i] - currentPositions[i]) * morphSpeed;
+        // ✊ CLOSED FIST: Morph into Living Sun (Plasma Sphere)
+        // We calculate the target position dynamically based on time
+        
+        // Re-use the pre-calculated sphere coordinates but add noise
+        // Note: spherePositions array is just raw XYZ. We need spherical coords for clean noise.
+        // To save perf, we can just use the index `i` as a pseudo-coordinate or re-calculate.
+        // Re-calculating spherical coords for 20k particles per frame is heavy? 
+        // JS is fast enough. Let's try or use a cheat.
+        // Cheat: Use the stored XYZ and add noise based on position.
+        
+        for(let i = 0; i < count; i++) {
+            const ix = i * 3;
+            const iy = i * 3 + 1;
+            const iz = i * 3 + 2;
+            
+            const bx = spherePositions[ix];
+            const by = spherePositions[iy];
+            const bz = spherePositions[iz];
+
+            // Simple vertex displacement noise
+            // Pulse radius
+            const dist = Math.sqrt(bx*bx + by*by + bz*bz);
+            // Normalized direction
+            const nx = bx / dist;
+            const ny = by / dist;
+            const nz = bz / dist;
+
+            // Perlin-ish noise using sine waves
+            // Frequencies and speeds
+            const noise = Math.sin(nx * 4 + time) * Math.cos(ny * 4 + time) * Math.sin(nz * 4 + time * 1.5) +
+                          Math.sin(nx * 10 - time * 2) * 0.5;
+            
+            const scaleVar = 1.0 + noise * 0.05; // 5% surface variation (subtle pulse)
+
+            // Target is the sphere position * dynamic scale
+            // We lerp current position towards this dynamic target
+            currentPositions[ix] += (bx * scaleVar - currentPositions[ix]) * morphSpeed;
+            currentPositions[iy] += (by * scaleVar - currentPositions[iy]) * morphSpeed;
+            currentPositions[iz] += (bz * scaleVar - currentPositions[iz]) * morphSpeed;
         }
         particles.geometry.attributes.position.needsUpdate = true;
     } 
