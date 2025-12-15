@@ -1,0 +1,628 @@
+import React, { useEffect, useRef, useState } from 'react';
+import * as THREE from 'three';
+
+export default function PhotorealisticSolarSystem() {
+  const containerRef = useRef(null);
+  const [info, setInfo] = useState('Initializing...');
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(
+      60,
+      window.innerWidth / window.innerHeight,
+      0.1,
+      50000
+    );
+    const renderer = new THREE.WebGLRenderer({ 
+      antialias: true,
+      powerPreference: "high-performance"
+    });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.2;
+    containerRef.current.appendChild(renderer.domElement);
+
+    setInfo('Creating realistic planets...');
+
+    // Lighting
+    const sunLight = new THREE.PointLight(0xfff4e6, 5, 0, 2);
+    sunLight.position.set(0, 0, 0);
+    sunLight.castShadow = true;
+    scene.add(sunLight);
+
+    const ambientLight = new THREE.AmbientLight(0x111122, 0.2);
+    scene.add(ambientLight);
+
+    // Advanced noise functions for terrain
+    const hash = (x, y, z) => {
+      const p = x * 127.1 + y * 311.7 + z * 74.7;
+      return Math.sin(p) * 43758.5453 % 1;
+    };
+
+    const noise3D = (x, y, z) => {
+      const i = Math.floor(x), j = Math.floor(y), k = Math.floor(z);
+      const fx = x - i, fy = y - j, fz = z - k;
+      const u = fx * fx * (3 - 2 * fx);
+      const v = fy * fy * (3 - 2 * fy);
+      const w = fz * fz * (3 - 2 * fz);
+      
+      const a = hash(i, j, k);
+      const b = hash(i + 1, j, k);
+      const c = hash(i, j + 1, k);
+      const d = hash(i + 1, j + 1, k);
+      const e = hash(i, j, k + 1);
+      const f = hash(i + 1, j, k + 1);
+      const g = hash(i, j + 1, k + 1);
+      const h = hash(i + 1, j + 1, k + 1);
+      
+      return a * (1 - u) * (1 - v) * (1 - w) +
+             b * u * (1 - v) * (1 - w) +
+             c * (1 - u) * v * (1 - w) +
+             d * u * v * (1 - w) +
+             e * (1 - u) * (1 - v) * w +
+             f * u * (1 - v) * w +
+             g * (1 - u) * v * w +
+             h * u * v * w;
+    };
+
+    const fbm = (x, y, z, octaves, persistence) => {
+      let total = 0, frequency = 1, amplitude = 1, maxValue = 0;
+      for (let i = 0; i < octaves; i++) {
+        total += noise3D(x * frequency, y * frequency, z * frequency) * amplitude;
+        maxValue += amplitude;
+        amplitude *= persistence;
+        frequency *= 2;
+      }
+      return total / maxValue;
+    };
+
+    // Create photorealistic shader material
+    const createPlanetShader = (config) => {
+      return new THREE.ShaderMaterial({
+        uniforms: {
+          time: { value: 0 },
+          lightPos: { value: new THREE.Vector3(0, 0, 0) },
+          color1: { value: new THREE.Color(config.color1) },
+          color2: { value: new THREE.Color(config.color2) },
+          color3: { value: new THREE.Color(config.color3) },
+          color4: { value: new THREE.Color(config.color4 || config.color3) },
+          noiseScale: { value: config.noiseScale || 3.0 },
+          heightScale: { value: config.heightScale || 0.15 },
+          roughness: { value: config.roughness || 0.8 },
+          metalness: { value: config.metalness || 0.1 },
+          hasAtmosphere: { value: config.hasAtmosphere || false },
+          atmosphereColor: { value: new THREE.Color(config.atmosphereColor || 0x4488ff) }
+        },
+        vertexShader: `
+          varying vec3 vNormal;
+          varying vec3 vPosition;
+          varying vec3 vWorldPosition;
+          varying float vHeight;
+          uniform float time;
+          uniform float noiseScale;
+          uniform float heightScale;
+          
+          float hash(vec3 p) {
+            p = fract(p * vec3(127.1, 311.7, 74.7));
+            p += dot(p, p.yzx + 19.19);
+            return fract((p.x + p.y) * p.z);
+          }
+          
+          float noise(vec3 p) {
+            vec3 i = floor(p);
+            vec3 f = fract(p);
+            f = f * f * (3.0 - 2.0 * f);
+            
+            return mix(
+              mix(mix(hash(i + vec3(0,0,0)), hash(i + vec3(1,0,0)), f.x),
+                  mix(hash(i + vec3(0,1,0)), hash(i + vec3(1,1,0)), f.x), f.y),
+              mix(mix(hash(i + vec3(0,0,1)), hash(i + vec3(1,0,1)), f.x),
+                  mix(hash(i + vec3(0,1,1)), hash(i + vec3(1,1,1)), f.x), f.y),
+              f.z
+            );
+          }
+          
+          float fbm(vec3 p, int octaves) {
+            float value = 0.0;
+            float amplitude = 0.5;
+            float frequency = 1.0;
+            
+            for(int i = 0; i < 8; i++) {
+              if(i >= octaves) break;
+              value += amplitude * noise(p * frequency);
+              frequency *= 2.0;
+              amplitude *= 0.5;
+            }
+            return value;
+          }
+          
+          void main() {
+            vNormal = normalize(normalMatrix * normal);
+            vPosition = position;
+            
+            // Multi-octave noise for realistic terrain
+            float height = fbm(position * noiseScale, ${config.octaves || 6});
+            
+            // Add crater-like features
+            float craters = fbm(position * noiseScale * 2.5, 4);
+            craters = pow(max(0.0, craters - 0.5), 2.0) * 0.3;
+            height = height - craters;
+            
+            vHeight = height;
+            
+            vec3 newPosition = position + normal * height * heightScale;
+            vec4 worldPos = modelMatrix * vec4(newPosition, 1.0);
+            vWorldPosition = worldPos.xyz;
+            
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(newPosition, 1.0);
+          }
+        `,
+        fragmentShader: `
+          uniform vec3 color1;
+          uniform vec3 color2;
+          uniform vec3 color3;
+          uniform vec3 color4;
+          uniform vec3 lightPos;
+          uniform float roughness;
+          uniform float metalness;
+          uniform bool hasAtmosphere;
+          uniform vec3 atmosphereColor;
+          
+          varying vec3 vNormal;
+          varying vec3 vPosition;
+          varying vec3 vWorldPosition;
+          varying float vHeight;
+          
+          void main() {
+            vec3 normal = normalize(vNormal);
+            vec3 lightDir = normalize(lightPos - vWorldPosition);
+            vec3 viewDir = normalize(cameraPosition - vWorldPosition);
+            vec3 halfDir = normalize(lightDir + viewDir);
+            
+            // Diffuse lighting
+            float diff = max(dot(normal, lightDir), 0.0);
+            
+            // Specular (for oceans/ice)
+            float spec = pow(max(dot(normal, halfDir), 0.0), 32.0) * (1.0 - roughness);
+            
+            // Fresnel effect for atmosphere
+            float fresnel = pow(1.0 - max(dot(normal, viewDir), 0.0), 3.0);
+            
+            // Height-based terrain coloring
+            vec3 terrainColor;
+            if(vHeight < 0.25) {
+              terrainColor = mix(color1, color2, vHeight / 0.25);
+            } else if(vHeight < 0.5) {
+              terrainColor = mix(color2, color3, (vHeight - 0.25) / 0.25);
+            } else {
+              terrainColor = mix(color3, color4, (vHeight - 0.5) / 0.5);
+            }
+            
+            // Add some variation
+            float variation = fract(sin(dot(vPosition.xy, vec2(12.9898, 78.233))) * 43758.5453);
+            terrainColor *= (0.9 + variation * 0.2);
+            
+            // Lighting
+            vec3 ambient = terrainColor * 0.15;
+            vec3 diffuse = terrainColor * diff * 0.7;
+            vec3 specular = vec3(1.0) * spec * 0.3;
+            
+            // Subsurface scattering approximation
+            float backLight = max(0.0, dot(normal, -lightDir));
+            vec3 subsurface = terrainColor * backLight * 0.2;
+            
+            vec3 color = ambient + diffuse + specular + subsurface;
+            
+            // Atmosphere glow
+            if(hasAtmosphere) {
+              color = mix(color, atmosphereColor, fresnel * 0.2);
+            }
+            
+            // Add slight blue tint in shadows for realism
+            color = mix(color, color * vec3(0.7, 0.8, 1.0), (1.0 - diff) * 0.2);
+            
+            gl_FragColor = vec4(color, 1.0);
+          }
+        `
+      });
+    };
+
+    // Create Sun
+    const sunGeo = new THREE.SphereGeometry(30, 96, 96);
+    const sunMat = new THREE.ShaderMaterial({
+      uniforms: {
+        time: { value: 0 }
+      },
+      vertexShader: `
+        varying vec3 vNormal;
+        varying vec2 vUv;
+        
+        void main() {
+          vNormal = normalize(normalMatrix * normal);
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform float time;
+        varying vec3 vNormal;
+        varying vec2 vUv;
+        
+        float hash(vec2 p) {
+          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+        }
+        
+        float noise(vec2 p) {
+          vec2 i = floor(p);
+          vec2 f = fract(p);
+          f = f * f * (3.0 - 2.0 * f);
+          return mix(mix(hash(i), hash(i + vec2(1,0)), f.x),
+                     mix(hash(i + vec2(0,1)), hash(i + vec2(1,1)), f.x), f.y);
+        }
+        
+        void main() {
+          // Animated surface turbulence
+          vec2 coord = vUv * 8.0 + time * 0.1;
+          float n = noise(coord) * 0.5 + noise(coord * 2.0) * 0.25 + noise(coord * 4.0) * 0.125;
+          
+          vec3 sunColor = mix(vec3(1.0, 0.4, 0.1), vec3(1.0, 0.9, 0.7), n);
+          
+          // Edge darkening
+          float edge = pow(max(0.0, dot(vNormal, vec3(0, 0, 1))), 0.5);
+          sunColor *= edge * 0.5 + 0.5;
+          
+          gl_FragColor = vec4(sunColor, 1.0);
+        }
+      `
+    });
+    const sun = new THREE.Mesh(sunGeo, sunMat);
+    scene.add(sun);
+
+    // Sun corona
+    const coronaGeo = new THREE.SphereGeometry(38, 64, 64);
+    const coronaMat = new THREE.ShaderMaterial({
+      vertexShader: `
+        varying vec3 vNormal;
+        void main() {
+          vNormal = normalize(normalMatrix * normal);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        varying vec3 vNormal;
+        void main() {
+          float intensity = pow(0.35 - dot(vNormal, vec3(0, 0, 1)), 3.0);
+          vec3 glow = vec3(1.0, 0.6, 0.2) * intensity;
+          gl_FragColor = vec4(glow, intensity * 0.6);
+        }
+      `,
+      side: THREE.BackSide,
+      blending: THREE.AdditiveBlending,
+      transparent: true
+    });
+    const corona = new THREE.Mesh(coronaGeo, coronaMat);
+    scene.add(corona);
+
+    // Starfield
+    const starsGeo = new THREE.BufferGeometry();
+    const starsVerts = [];
+    const starsColors = [];
+    for (let i = 0; i < 20000; i++) {
+      const r = 15000;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(Math.random() * 2 - 1);
+      starsVerts.push(
+        r * Math.sin(phi) * Math.cos(theta),
+        r * Math.sin(phi) * Math.sin(theta),
+        r * Math.cos(phi)
+      );
+      const brightness = Math.random() * 0.5 + 0.5;
+      starsColors.push(brightness, brightness * 0.95, brightness * 0.9);
+    }
+    starsGeo.setAttribute('position', new THREE.Float32BufferAttribute(starsVerts, 3));
+    starsGeo.setAttribute('color', new THREE.Float32BufferAttribute(starsColors, 3));
+    const starsMat = new THREE.PointsMaterial({
+      size: 2,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.9
+    });
+    const stars = new THREE.Points(starsGeo, starsMat);
+    scene.add(stars);
+
+    const planets = [];
+
+    // Planet configurations
+    const configs = [
+      { name: 'Mercury', size: 2.4, dist: 70, speed: 0.04, rot: 0.004,
+        color1: 0x4a4a4a, color2: 0x6b6b6b, color3: 0x8c8c8c, color4: 0xa0a0a0,
+        noiseScale: 5, heightScale: 0.2, octaves: 6, roughness: 0.95 },
+      
+      { name: 'Venus', size: 6, dist: 100, speed: 0.015, rot: -0.002,
+        color1: 0xe39e1c, color2: 0xffc649, color3: 0xffd97d, color4: 0xffe4a3,
+        noiseScale: 2, heightScale: 0.08, octaves: 5, roughness: 0.9 },
+      
+      { name: 'Earth', size: 6.4, dist: 135, speed: 0.01, rot: 0.02,
+        color1: 0x0a4d8f, color2: 0x228b22, color3: 0x8b7355, color4: 0xf0f0f0,
+        noiseScale: 4, heightScale: 0.15, octaves: 7, roughness: 0.6,
+        hasAtmosphere: true, atmosphereColor: 0x4488ff },
+      
+      { name: 'Mars', size: 3.4, dist: 170, speed: 0.008, rot: 0.018,
+        color1: 0x8b3a0e, color2: 0xcd5c5c, color3: 0xa0522d, color4: 0xd2691e,
+        noiseScale: 5, heightScale: 0.25, octaves: 6, roughness: 0.95 },
+      
+      { name: 'Jupiter', size: 22, dist: 240, speed: 0.002, rot: 0.04,
+        color1: 0xc9b382, color2: 0xdaa520, color3: 0xe6c288, color4: 0xf5deb3,
+        noiseScale: 1.5, heightScale: 0.05, octaves: 5, roughness: 0.7 },
+      
+      { name: 'Saturn', size: 18, dist: 310, speed: 0.0009, rot: 0.038,
+        color1: 0xd4a76a, color2: 0xfad5a5, color3: 0xf5deb3, color4: 0xfff8dc,
+        noiseScale: 1.8, heightScale: 0.04, octaves: 4, roughness: 0.75 },
+      
+      { name: 'Uranus', size: 10, dist: 380, speed: 0.0004, rot: 0.03,
+        color1: 0x4682b4, color2: 0x5f9ea0, color3: 0x87ceeb, color4: 0xadd8e6,
+        noiseScale: 2.5, heightScale: 0.03, octaves: 4, roughness: 0.5 },
+      
+      { name: 'Neptune', size: 9.7, dist: 450, speed: 0.0001, rot: 0.032,
+        color1: 0x191970, color2: 0x4169e1, color3: 0x6495ed, color4: 0x87ceeb,
+        noiseScale: 2.5, heightScale: 0.03, octaves: 4, roughness: 0.5 }
+    ];
+
+    configs.forEach(cfg => {
+      const planetGeo = new THREE.SphereGeometry(cfg.size, 128, 128);
+      const planetMat = createPlanetShader(cfg);
+      const planet = new THREE.Mesh(planetGeo, planetMat);
+      planet.castShadow = true;
+      planet.receiveShadow = true;
+
+      const group = new THREE.Group();
+      planet.position.x = cfg.dist;
+      group.add(planet);
+      scene.add(group);
+
+      // Saturn rings
+      if (cfg.name === 'Saturn') {
+        const ringGeo = new THREE.RingGeometry(cfg.size * 1.3, cfg.size * 2.2, 128);
+        const ringMat = new THREE.ShaderMaterial({
+          uniforms: {
+            innerRadius: { value: cfg.size * 1.3 },
+            outerRadius: { value: cfg.size * 2.2 }
+          },
+          vertexShader: `
+            varying vec2 vUv;
+            void main() {
+              vUv = uv;
+              gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+          `,
+          fragmentShader: `
+            uniform float innerRadius;
+            uniform float outerRadius;
+            varying vec2 vUv;
+            
+            void main() {
+              float dist = length(vUv - 0.5) * 2.0;
+              float ring = smoothstep(0.0, 0.1, dist) * smoothstep(1.0, 0.8, dist);
+              
+              vec3 color = mix(vec3(0.9, 0.8, 0.6), vec3(0.7, 0.6, 0.4), dist);
+              float alpha = ring * 0.85;
+              
+              gl_FragColor = vec4(color, alpha);
+            }
+          `,
+          side: THREE.DoubleSide,
+          transparent: true
+        });
+        const ring = new THREE.Mesh(ringGeo, ringMat);
+        ring.rotation.x = Math.PI / 2;
+        planet.add(ring);
+      }
+
+      // Earth clouds
+      if (cfg.name === 'Earth') {
+        const cloudsGeo = new THREE.SphereGeometry(cfg.size * 1.01, 64, 64);
+        const cloudsMat = new THREE.ShaderMaterial({
+          uniforms: {
+            time: { value: 0 }
+          },
+          vertexShader: `
+            varying vec2 vUv;
+            varying vec3 vNormal;
+            void main() {
+              vUv = uv;
+              vNormal = normalize(normalMatrix * normal);
+              gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+          `,
+          fragmentShader: `
+            uniform float time;
+            varying vec2 vUv;
+            varying vec3 vNormal;
+            
+            float hash(vec2 p) {
+              return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+            }
+            
+            float noise(vec2 p) {
+              vec2 i = floor(p);
+              vec2 f = fract(p);
+              f = f * f * (3.0 - 2.0 * f);
+              return mix(mix(hash(i), hash(i + vec2(1,0)), f.x),
+                         mix(hash(i + vec2(0,1)), hash(i + vec2(1,1)), f.x), f.y);
+            }
+            
+            float fbm(vec2 p) {
+              float value = 0.0;
+              float amplitude = 0.5;
+              for(int i = 0; i < 5; i++) {
+                value += amplitude * noise(p);
+                p *= 2.0;
+                amplitude *= 0.5;
+              }
+              return value;
+            }
+            
+            void main() {
+              vec2 coord = vUv * 8.0 + vec2(time * 0.02, 0.0);
+              float clouds = fbm(coord);
+              clouds = smoothstep(0.4, 0.7, clouds);
+              
+              float edge = dot(vNormal, vec3(0, 0, 1));
+              clouds *= smoothstep(0.0, 0.5, edge);
+              
+              gl_FragColor = vec4(vec3(1.0), clouds * 0.7);
+            }
+          `,
+          transparent: true,
+          depthWrite: false
+        });
+        const clouds = new THREE.Mesh(cloudsGeo, cloudsMat);
+        planet.add(clouds);
+        planets.push({ mesh: planet, group, cfg, material: planetMat, clouds: cloudsMat });
+      } else {
+        planets.push({ mesh: planet, group, cfg, material: planetMat });
+      }
+
+      // Orbit lines
+      const orbitGeo = new THREE.BufferGeometry();
+      const orbitPts = [];
+      for (let i = 0; i <= 256; i++) {
+        const a = (i / 256) * Math.PI * 2;
+        orbitPts.push(Math.cos(a) * cfg.dist, 0, Math.sin(a) * cfg.dist);
+      }
+      orbitGeo.setAttribute('position', new THREE.Float32BufferAttribute(orbitPts, 3));
+      const orbitMat = new THREE.LineBasicMaterial({ color: 0x333333, transparent: true, opacity: 0.15 });
+      const orbit = new THREE.Line(orbitGeo, orbitMat);
+      scene.add(orbit);
+    });
+
+    camera.position.set(250, 300, 500);
+    camera.lookAt(0, 0, 0);
+
+    let autoAngle = 0;
+    let mouseActive = false;
+    let targetX = 250, targetY = 300;
+
+    const handleMouseMove = (e) => {
+      mouseActive = true;
+      const mx = (e.clientX / window.innerWidth) * 2 - 1;
+      const my = -(e.clientY / window.innerHeight) * 2 + 1;
+      targetX = mx * 200 + 250;
+      targetY = -my * 150 + 300;
+    };
+
+    const handleMouseLeave = () => {
+      mouseActive = false;
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseleave', handleMouseLeave);
+
+    const clock = new THREE.Clock();
+    setInfo('Ready!');
+
+    const animate = () => {
+      requestAnimationFrame(animate);
+      const time = clock.getElapsedTime();
+
+      sun.rotation.y += 0.001;
+      sunMat.uniforms.time.value = time;
+
+      planets.forEach(p => {
+        p.group.rotation.y += p.cfg.speed;
+        p.mesh.rotation.y += p.cfg.rot;
+        p.material.uniforms.time.value = time;
+        p.material.uniforms.lightPos.value.set(0, 0, 0);
+        
+        if (p.clouds) {
+          p.clouds.uniforms.time.value = time;
+        }
+      });
+
+      if (!mouseActive) {
+        autoAngle += 0.002;
+        camera.position.x = Math.cos(autoAngle) * 500;
+        camera.position.z = Math.sin(autoAngle) * 500;
+        camera.position.y = 300;
+      } else {
+        camera.position.x += (targetX - camera.position.x) * 0.05;
+        camera.position.y += (targetY - camera.position.y) * 0.05;
+      }
+
+      camera.lookAt(0, 0, 0);
+      renderer.render(scene, camera);
+    };
+
+    animate();
+
+    const handleResize = () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    };
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseleave', handleMouseLeave);
+      window.removeEventListener('resize', handleResize);
+      if (containerRef.current?.contains(renderer.domElement)) {
+        containerRef.current.removeChild(renderer.domElement);
+      }
+      renderer.dispose();
+    };
+  }, []);
+
+  return (
+    <div style={{ margin: 0, overflow: 'hidden' }}>
+      <div ref={containerRef} style={{ width: '100vw', height: '100vh', background: '#000' }} />
+      <div style={{
+        position: 'absolute',
+        top: '20px',
+        left: '20px',
+        color: 'white',
+        fontFamily: 'Arial, sans-serif',
+        fontSize: '14px',
+        background: 'rgba(0,0,0,0.85)',
+        padding: '25px',
+        borderRadius: '12px',
+        backdropFilter: 'blur(15px)',
+        border: '1px solid rgba(255,255,255,0.1)',
+        maxWidth: '320px'
+      }}>
+        <div style={{ fontSize: '24px', marginBottom: '18px', fontWeight: 'bold' }}>
+          🌍 Photorealistic Planets
+        </div>
+        <div style={{ marginBottom: '10px', lineHeight: '1.6' }}>
+          <div>🏔️ <strong>3D Terrain Displacement</strong></div>
+          <div style={{ fontSize: '12px', opacity: 0.8, marginLeft: '20px' }}>Multi-octave procedural noise</div>
+        </div>
+        <div style={{ marginBottom: '10px', lineHeight: '1.6' }}>
+          <div>🎨 <strong>Height-Based Colors</strong></div>
+          <div style={{ fontSize: '12px', opacity: 0.8, marginLeft: '20px' }}>Oceans, land, mountains, ice caps</div>
+        </div>
+        <div style={{ marginBottom: '10px', lineHeight: '1.6' }}>
+          <div>💡 <strong>Realistic Lighting</strong></div>
+          <div style={{ fontSize: '12px', opacity: 0.8, marginLeft: '20px' }}>Diffuse, specular, subsurface</div>
+        </div>
+        <div style={{ marginBottom: '10px', lineHeight: '1.6' }}>
+          <div>🌫️ <strong>Earth Atmosphere</strong></div>
+          <div style={{ fontSize: '12px', opacity: 0.8, marginLeft: '20px' }}>Blue glow + animated clouds</div>
+        </div>
+        <div style={{ marginBottom: '10px', lineHeight: '1.6' }}>
+          <div>🪐 <strong>Saturn Rings</strong></div>
+          <div style={{ fontSize: '12px', opacity: 0.8', marginLeft: '20px' }}>Procedural ring bands</div>
+        </div>
+        <div style={{ marginTop: '18px', paddingTop: '18px', borderTop: '1px solid rgba(255,255,255,0.15)', opacity: 0.7, fontSize: '12px' }}>
+          <div>🖱️ Move mouse to control camera</div>
+          <div>🔄 Auto-rotates when idle</div>
+        </div>
+      </div>
+    </div>
+  );
+}
