@@ -1,6 +1,7 @@
 // --- Global Variables ---
 let scene, camera, renderer;
 let particles, geometry, material;
+let bgParticles, bgGeometry, bgMaterial; // Background stars
 let basePositions; // Store the original shape positions
 let spherePositions; // Store the compressed sphere positions
 let currentTemplate = 'galaxy';
@@ -177,6 +178,9 @@ function init() {
 
     // Create initial particle system
     createParticles();
+    
+    // Create background stars
+    createBackgroundStars();
 
     // Event Listeners
     window.addEventListener('resize', onWindowResize, false);
@@ -465,6 +469,40 @@ function explodeUniverse() {
     }
     
     particles.geometry.attributes.position.needsUpdate = true;
+}
+
+function createBackgroundStars() {
+    const bgCount = 10000;
+    bgGeometry = new THREE.BufferGeometry();
+    const bgPositions = new Float32Array(bgCount * 3);
+
+    const tempPos = new THREE.Vector3();
+    for (let i = 0; i < bgCount; i++) {
+        // Random spherical distribution far away
+        tempPos.setFromSphericalCoords(
+            Math.random() * 400 + 400, // Radius 400-800
+            Math.acos(Math.random() * 2 - 1),
+            Math.random() * Math.PI * 2
+        );
+        bgPositions[i * 3] = tempPos.x;
+        bgPositions[i * 3 + 1] = tempPos.y;
+        bgPositions[i * 3 + 2] = tempPos.z;
+    }
+
+    bgGeometry.setAttribute('position', new THREE.BufferAttribute(bgPositions, 3));
+
+    bgMaterial = new THREE.PointsMaterial({
+        color: 0x888888, // Dim white/gray
+        size: 2.0, // Slightly larger to compensate for soft texture
+        map: createStarTexture(), // Use texture to make them round
+        transparent: true,
+        opacity: 0.6,
+        alphaTest: 0.05, // Helps with sorting/visuals
+        sizeAttenuation: true
+    });
+
+    bgParticles = new THREE.Points(bgGeometry, bgMaterial);
+    scene.add(bgParticles);
 }
 
 // --- GESTURE DETECTION FUNCTIONS ---
