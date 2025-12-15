@@ -45,7 +45,7 @@ const gestureHistorySize = 5; // Number of frames to consider for smoothing
 // Template cycling variables
 let lastTemplateChangeTime = 0;
 const TEMPLATE_CHANGE_COOLDOWN = 1000; // 1 second cooldown
-let lockOnExit = false; // If true, universe keeps state when hands are removed
+let lockOnExit = true; // If true, universe keeps state when hands are removed
 
 // --- PARTICLE TEMPLATE DATA ---
 // Functions to generate initial particle positions based on a shape.
