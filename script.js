@@ -18,8 +18,11 @@ let previousMouseX = 0, previousMouseY = 0;
 let handDistance = 1.0; // Normalized distance (0 to 1) between two hands (for SCALING)
 let handGesture = 'neutral'; // Current gesture: 'open', 'closed', or 'neutral' (for COLOR/PARTICLE SIZE)
 let targetHandPosition = new THREE.Vector3(0, 0, 0); // Target position for particles to follow hand
+let targetHandRotationZ = 0; // Target Z-rotation based on hand roll
+let targetHandRotationY = 0; // Target Y-rotation based on hand yaw
 let lastHandPosition = null; // Used to calculate velocity
 const positionSmoothing = 0.15; // Smoothing factor for position following
+const rotationSmoothing = 0.1; // Smoothing factor for rotation
 const positionScale = 200; // Scale factor to convert normalized hand position to 3D space
 
 // Gesture smoothing to prevent flickering
@@ -567,6 +570,60 @@ function updateHandPosition(handLandmarks) {
     );
 }
 
+/**
+ * Calculates the roll angle of the hand to control Z-axis rotation.
+ * Uses the angle between the Wrist (0) and the Middle Finger Knuckle (MCP, 9).
+ * @param {Array<Object>} handLandmarks - The 21 hand landmarks.
+ * @returns {number} The angle in radians.
+ */
+function getHandRoll(handLandmarks) {
+    // Landmark 0: Wrist
+    // Landmark 9: Middle Finger MCP (knuckle)
+    const p1 = handLandmarks[0];
+    const p2 = handLandmarks[9];
+
+    // Calculate angle. 
+    // In screen coordinates: X is right, Y is down.
+    // We want 0 radians to be "up" (vertical hand), so we offset or swap x/y.
+    // Standard atan2(y, x) gives angle from positive X axis.
+    // vector p1->p2
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+
+    // We want the angle relative to "UP" (-Y in screen coords).
+    // Math.atan2(dy, dx) + Math.PI / 2 usually works to orient "up" as 0.
+    // Because screen Y is inverted (down is positive), "UP" is negative Y.
+    // Let's just use raw atan2 and calibrate.
+    // A vertical hand (fingers up): dx=0, dy < 0. atan2(-1, 0) = -PI/2.
+    // To make this 0, add PI/2.
+    return Math.atan2(dy, dx) + Math.PI / 2;
+}
+
+/**
+ * Calculates the yaw angle (left/right turn) of the hand to control Y-axis rotation.
+ * Uses the Z-depth difference between Index MCP (5) and Pinky MCP (17).
+ * @param {Array<Object>} handLandmarks - The 21 hand landmarks.
+ * @returns {number} The estimated yaw angle in radians.
+ */
+function getHandYaw(handLandmarks) {
+    // Landmark 5: Index Finger MCP
+    // Landmark 17: Pinky Finger MCP
+    const indexMCP = handLandmarks[5];
+    const pinkyMCP = handLandmarks[17];
+
+    // Determine direction. 
+    // If Index (5) is deeper (more negative Z usually, but check MediaPipe coords) 
+    // MediaPipe Z: "origin at wrist, smaller value is closer to camera". 
+    // Wait, documentation says: "Z represents depth... keeping the origin at the wrist."
+    // Actually, usually in MP: negative Z is closer to camera? or positive?
+    // Let's test: if index is 'behind' pinky, hand is turned one way.
+    
+    // Using simple difference scaled up.
+    // Sensitivity might need tuning.
+    const sensitivity = 8.0; 
+    return (indexMCP.z - pinkyMCP.z) * sensitivity;
+}
+
 // --- ANIMATION LOOP ---
 function animate() {
     requestAnimationFrame(animate);
@@ -583,8 +640,28 @@ function animate() {
         particles.rotation.y += (targetRotationY - particles.rotation.y) * 0.05;
     } else {
         // Auto-rotation when not dragging
-        particles.rotation.y += 0.0008; // Main rotation around Y axis
-        particles.rotation.z += 0.0001; // Slight tilt rotation for 3D effect
+        // Auto-rotation when not dragging
+        // If a hand is present and operating, we override this with hand rotation
+        if (gestureHistory.length > 0) {
+             // Hand control active
+             
+             // Smoothly rotate Z to match hand Roll
+             particles.rotation.z += (targetHandRotationZ - particles.rotation.z) * rotationSmoothing;
+             
+             // Smoothly rotate Y to match hand Yaw
+             // We add to Y rotation continuously like a steering input, OR map absolutely?
+             // User asked "rotate the hand on Z and Y axis and the universe must match".
+             // "Match" implies absolute mapping (1:1ish). 
+             // If I turn my hand 45 deg, universe should be 45 deg? 
+             // OR does turning hand add velocity? 
+             // "Match" likely means orientation mapping.
+             particles.rotation.y += (targetHandRotationY - particles.rotation.y) * rotationSmoothing;
+
+        } else {
+             // Default ambient rotation
+             particles.rotation.y += 0.0008; 
+             particles.rotation.z += 0.0001; 
+        }
     }
 
     // 2. Real-time Gesture Response (Scaling/Expansion)
@@ -729,6 +806,10 @@ function onResults(results) {
 
         // B. Update hand position for particle movement
         updateHandPosition(hand);
+        
+        // C. Calculate Hand Rotation (Roll & Yaw)
+        targetHandRotationZ = -getHandRoll(hand); // Invert Roll for natural feel
+        targetHandRotationY = getHandYaw(hand) * 2.0; // Scale Yaw effect
 
         // Reset two-hand distance to neutral scale
         handDistance = 0.5;
