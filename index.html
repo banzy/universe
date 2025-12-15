@@ -23,7 +23,7 @@
             position: absolute;
             top: 20px;
             right: 20px;
-            padding: 15px;
+            padding: 10px;
             background: rgba(34, 34, 34, 0.85);
             /* Dark, slightly transparent background */
             border-radius: 10px;
@@ -41,6 +41,11 @@
             font-size: 1.2em;
             color: #4CAF50;
             /* A touch of color for the title */
+        }
+
+        h4 {
+            margin: 0;
+            padding: .5em 0.2em 0.7em 0.2em;
         }
 
         .control-group {
@@ -106,44 +111,62 @@
     <div id="container"></div>
 
     <div id="controls">
-        <h2>✨ Particle System Controls</h2>
+        <h4 id="controls-title" style="color: #FF9800; cursor: pointer; user-select: none;">✨ Particle System Controls
+            <span>▼</span>
+        </h4>
 
-        <div class="control-group">
-            <label for="template-selector">Particle Template</label>
-            <select id="template-selector">
-                <option value="galaxy" selected>Galaxy (Spiral)</option>
-                <option value="spiral">Tight Spiral</option>
-                <option value="barred">Barred Spiral</option>
-                <option value="sphere">Sphere</option>
-                <option value="saturn">Saturn</option>
-                <option value="fireworks">Fireworks Burst</option>
-            </select>
+        <div id="controls-content">
+            <div class="control-group">
+                <label for="template-selector">Particle Template</label>
+                <select id="template-selector">
+                    <option value="galaxy" selected>Galaxy (Spiral)</option>
+                    <option value="spiral">Tight Spiral</option>
+                    <option value="barred">Barred Spiral</option>
+                    <option value="sphere">Sphere</option>
+                    <option value="saturn">Saturn</option>
+                    <option value="fireworks">Fireworks Burst</option>
+                </select>
+            </div>
+
+            <div class="control-group">
+                <label for="color-selector">Particle Color</label>
+                <input type="color" id="color-selector" value="#4CC7FF">
+            </div>
+
+            <div class="control-group">
+                <label for="lock-toggle" style="display:inline; font-weight:normal;">
+                    <input type="checkbox" id="lock-toggle"
+                        style="width:auto; height:auto; display:inline-block; margin:0 5px 0 0;">
+                    Lock State on Exit
+                </label>
+            </div>
+
+            <p style="font-size: 0.8em; margin-top: 20px; color: #aaa;">
+                <strong>Hand Controls:</strong><br>
+                • Two hands: Move closer/farther to scale galaxy<br>
+                • ✌️ Peace Sign: 💥 EXPLODE THE UNIVERSE 💥<br>
+                • ✊ Closed Fist: Compress/Reset to Sphere<br>
+                • ✋ Open Hand: Reform Galaxy<br>
+                • Move hand: Galaxy follows your movement<br>
+                • Turn hand: Rotate Universe (Left/Right & Tilt)<br>
+                <br>
+            </p>
         </div>
-
-        <div class="control-group">
-            <label for="color-selector">Particle Color</label>
-            <input type="color" id="color-selector" value="#4CC7FF">
-        </div>
-
-        <div class="control-group">
-            <label for="lock-toggle" style="display:inline; font-weight:normal;">
-                <input type="checkbox" id="lock-toggle"
-                    style="width:auto; height:auto; display:inline-block; margin:0 5px 0 0;">
-                Lock State on Exit
-            </label>
-        </div>
-
-        <p style="font-size: 0.8em; margin-top: 20px; color: #aaa;">
-            <strong>Hand Controls:</strong><br>
-            • Two hands: Move closer/farther to scale galaxy<br>
-            • ✌️ Peace Sign: 💥 EXPLODE THE UNIVERSE 💥<br>
-            • ✊ Closed Fist: Compress/Reset to Sphere<br>
-            • ✋ Open Hand: Reform Galaxy<br>
-            • Move hand: Galaxy follows your movement<br>
-            • Turn hand: Rotate Universe (Left/Right & Tilt)<br>
-            <br>
-        </p>
     </div>
+
+    <script>
+        document.getElementById('controls-title').addEventListener('click', function () {
+            const content = document.getElementById('controls-content');
+            const arrow = this.querySelector('span');
+            if (content.style.display === 'none') {
+                content.style.display = 'block';
+                arrow.textContent = '▼';
+            } else {
+                content.style.display = 'none';
+                arrow.textContent = '◀';
+            }
+        });
+    </script>
 
     <div id="video-container">
         <video id="webcam-video" autoplay playsinline></video>
