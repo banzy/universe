@@ -122,23 +122,92 @@ const templates = {
         pos.set(x, y, z);
     },
     saturn: (pos, i) => {
-        const isRing = Math.random() < 0.6; // 60% in the ring
+        const isRing = Math.random() < 0.7; // 70% in rings
+        // Saturn Tilt (~27 degrees)
+        const tilt = 27 * Math.PI / 180;
+        const cosTilt = Math.cos(tilt);
+        const sinTilt = Math.sin(tilt);
+
         if (isRing) {
-            // Ring
-            const radius = Math.random() * 60 + 50;
-            const theta = Math.random() * Math.PI * 2;
-            const x = radius * Math.cos(theta);
-            const y = (Math.random() - 0.5) * 5; // Flat plane
-            const z = radius * Math.sin(theta);
-            pos.set(x, y, z);
+            // Rings: Inner 1.2 to Outer 2.3 radii roughly
+            // Modeled to look nice relative to planet size 30
+            // Gaps: Cassini division roughly at 1.95 - 2.05 radius factor
+            
+            let r;
+            let valid = false;
+            while (!valid) {
+                 r = Math.random() * 50 + 40; // 40 to 90
+                 // Cassini division simulation (gap around 70-75)
+                 if (r > 68 && r < 72) {
+                     valid = Math.random() < 0.1; // Sparse in gap
+                 } else {
+                     valid = true;
+                 }
+            }
+
+            const theta = (i / particleCount) * Math.PI * 2 * 20 + Math.random(); // Even distribution
+            
+            // Initial Flat Ring (XZ)
+            let x = r * Math.cos(theta);
+            let y = (Math.random() - 0.5) * 0.5; // Very thin
+            let z = r * Math.sin(theta);
+
+            // Apply Tilt
+            // Rotate around X axis? Or Z? Saturn tilt is usually shown relative to orbital plane.
+            // Let's rotate around Z for visual "tilt"
+            
+            let xp = x * cosTilt - y * sinTilt;
+            let yp = x * sinTilt + y * cosTilt;
+            let zp = z;
+            
+            pos.set(xp, yp, zp);
+
         } else {
-            // Planet core (sphere)
-            pos.setFromSphericalCoords(
-                Math.random() * 40,
-                Math.acos(Math.random() * 2 - 1),
-                Math.random() * Math.PI * 2
-            );
+            // Planet Surface (Shell)
+            const r = 30; 
+            const theta = Math.random() * Math.PI * 2;
+            const phi = Math.acos(Math.random() * 2 - 1);
+            
+            let x = r * Math.sin(phi) * Math.cos(theta);
+            let y = r * Math.cos(phi);
+            let z = r * Math.sin(phi) * Math.sin(theta);
+            
+             // Flatten poles slightly (Saturn is oblate)
+            y *= 0.9;
+
+            // Apply Tilt
+            let xp = x * cosTilt - y * sinTilt;
+            let yp = x * sinTilt + y * cosTilt;
+            let zp = z;
+
+            pos.set(xp, yp, zp);
         }
+    },
+    earth: (pos, i) => {
+        // Earth sphere (Shell)
+        // Tilt ~23.5 degrees
+        const tilt = 23.5 * Math.PI / 180;
+        const cosTilt = Math.cos(tilt);
+        const sinTilt = Math.sin(tilt);
+        
+        let r = 35;
+        
+        // Atmosphere layer (faint halo) 
+        if (i % 20 === 0) r = 37; 
+
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(Math.random() * 2 - 1);
+        
+        let x = r * Math.sin(phi) * Math.cos(theta);
+        let y = r * Math.cos(phi);
+        let z = r * Math.sin(phi) * Math.sin(theta);
+        
+         // Apply Tilt
+        let xp = x * cosTilt - y * sinTilt;
+        let yp = x * sinTilt + y * cosTilt;
+        let zp = z;
+
+        pos.set(xp, yp, zp);
     },
     buddha: (pos, i) => {
         // Abstract upward flowing, seated shape
@@ -275,7 +344,7 @@ function onMouseWheel(event) {
  * @param {THREE.Vector3} position - Particle position for color variation
  * @returns {THREE.Color} A galaxy-like color
  */
-function getUniverseColor(position) {
+function getGalaxyColor(position) {
     // Calculate distance from center
     const distance = Math.sqrt(position.x * position.x + position.y * position.y + position.z * position.z);
     const maxDistance = 100; // Approximate max distance
@@ -339,6 +408,129 @@ function getUniverseColor(position) {
     return finalColor;
 }
 
+function getSaturnColor(position) {
+    // Reverse tilt to get local latitude
+    // Tilt was ~27 deg around Z. (Or we can just rely on distance/bands relative to rotated center)
+    // Simpler: Just check distance from center (rings) vs sphere.
+    
+    // Check if particle is part of the rings or body based on geometry
+    // Ring radius > 40. Planet < 30 (ish).
+    const distSq = position.x * position.x + position.y * position.y + position.z * position.z;
+    const dist = Math.sqrt(distSq);
+    
+    if (dist > 35) { // Rings
+       // Ring Colors based on radius
+       // Use distance from center to determine band
+       const band = dist;
+       let c;
+       if (band > 68 && band < 72) {
+           // Cassini gap - Darker
+           c = new THREE.Color(0.1, 0.1, 0.1);
+       } else if ((band > 45 && band < 55) || (band > 75 && band < 85)) {
+           // Brighter bands
+           c = new THREE.Color(0.85, 0.8, 0.7);
+       } else {
+           // Standard ring color
+           c = new THREE.Color(0.75, 0.65, 0.5);
+       }
+       // Add noise
+       c.multiplyScalar(0.8 + Math.random() * 0.4);
+       return c;
+    } 
+    
+    // Planet body
+    // We need "latitude" relative to the tilt.
+    // Tilt was rotation around Z by 27 deg.
+    // We can rotate point back to axis-aligned to get latitude.
+    const tilt = -27 * Math.PI / 180; // Invert tilt
+    const cosT = Math.cos(tilt);
+    const sinT = Math.sin(tilt);
+    
+    // Rotating around Z
+    // x' = x cos - y sin
+    // y' = x sin + y cos
+    const localY = position.x * sinT + position.y * cosT;
+    const absY = Math.abs(localY);
+    
+    let color;
+    if (absY > 25) { // Hexagon/Pole
+        color = new THREE.Color(0.35, 0.35, 0.3); // Gray-ish
+    } else if (absY > 18) {
+         color = new THREE.Color(0.7, 0.65, 0.5);
+    } else if (absY > 10) {
+         color = new THREE.Color(0.8, 0.7, 0.5);
+    } else if (absY > 3) {
+         color = new THREE.Color(0.85, 0.75, 0.55);
+    } else {
+         color = new THREE.Color(0.9, 0.8, 0.6); // Equator
+    }
+    
+    color.multiplyScalar(0.9 + Math.random() * 0.2);
+    return color;
+}
+
+function getEarthColor(position) {
+    // Reverse tilt to get texture coordinates
+    const tilt = -23.5 * Math.PI / 180;
+    const cosT = Math.cos(tilt);
+    const sinT = Math.sin(tilt);
+    
+    const localX = position.x * cosT - position.y * sinT;
+    const localY = position.x * sinT + position.y * cosT;
+    const localZ = position.z;
+    
+    const dist = Math.sqrt(localX*localX + localY*localY + localZ*localZ);
+    
+    // Atmosphere/Clouds for outer shell (radius > 36)
+    if (dist > 36) {
+        return new THREE.Color(1.0, 1.0, 1.0); // White clouds
+    }
+
+    const lat = localY; // -35 to 35 roughly
+    const absLat = Math.abs(lat);
+    
+    // Poles
+    if (absLat > 28) {
+        return new THREE.Color(0.95, 0.98, 1.0); // Ice
+    }
+    
+    // Noise for continents
+    // Scale inputs to get decent islands/continents
+    const nX = localX * 0.12;
+    const nY = localY * 0.12;
+    const nZ = localZ * 0.12;
+    
+    // Simple 3D noise approximation using sin waves
+    const noise = Math.sin(nX) * Math.cos(nY) + 
+                  Math.sin(nY*2.1 + nZ) * 0.5 + 
+                  Math.cos(nZ*1.5 + nX) * 0.3;
+                  
+    // Add Clouds randomly
+    if (Math.random() > 0.95) {
+         return new THREE.Color(1.0, 1.0, 1.0);
+    }
+
+    if (noise > 0.2) {
+        // Land
+        if (noise > 0.6 && absLat < 20) {
+            return new THREE.Color(0.05, 0.35, 0.05); // Jungle
+        } else if (absLat < 22) {
+             return new THREE.Color(0.2, 0.5, 0.2); // Green
+        } else if (absLat > 25) {
+             return new THREE.Color(0.6, 0.6, 0.6); // Tundra/Mountain
+        } else {
+             return new THREE.Color(0.5, 0.4, 0.25); // Dirt/Plains
+        }
+    } else {
+        // Ocean
+        // Depth based on noise?
+        if (noise < -0.5) {
+             return new THREE.Color(0.0, 0.1, 0.4); // Deep
+        }
+        return new THREE.Color(0.0, 0.3, 0.7); // Shallow
+    }
+}
+
 // --- PARTICLE SPRITE TEXTURE ---
 function createStarTexture() {
     const size = 128;
@@ -396,8 +588,16 @@ function createParticles() {
         positions[i * 3 + 1] = position.y;
         positions[i * 3 + 2] = position.z;
 
-        // Assign universe-like gradient color to each particle
-        const color = getUniverseColor(position);
+        // Assign color based on template
+        let color;
+        if (currentTemplate === 'saturn') {
+            color = getSaturnColor(position);
+        } else if (currentTemplate === 'earth') {
+            color = getEarthColor(position);
+        } else {
+            color = getGalaxyColor(position);
+        }
+        
         colors[i * 3] = color.r;
         colors[i * 3 + 1] = color.g;
         colors[i * 3 + 2] = color.b;
