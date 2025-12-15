@@ -686,8 +686,9 @@ function animate() {
     // Use material color as a tint/multiplier over vertex colors for gradient effect
     let targetTintColor;
     if (handGesture === 'closed') {
-        // Closed Fist: Red tint (COMPRESSING)
-        targetTintColor = new THREE.Color(1.3, 0.5, 0.5);
+        // Closed Fist: Yellow-Orange tint (COMPRESSING)
+        // High Red, medium Green, low Blue -> warm glow
+        targetTintColor = new THREE.Color(1.5, 0.9, 0.2); 
         material.size = 1.0;
     } else if (handGesture === 'open') {
         // Open Palm: Cyan tint (EXPANDING)
