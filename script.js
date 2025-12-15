@@ -32,6 +32,7 @@ const gestureHistorySize = 5; // Number of frames to consider for smoothing
 // Template cycling variables
 let lastTemplateChangeTime = 0;
 const TEMPLATE_CHANGE_COOLDOWN = 1000; // 1 second cooldown
+let lockOnExit = false; // If true, universe keeps state when hands are removed
 
 // --- PARTICLE TEMPLATE DATA ---
 // Functions to generate initial particle positions based on a shape.
@@ -181,6 +182,7 @@ function init() {
     window.addEventListener('resize', onWindowResize, false);
     document.getElementById('template-selector').addEventListener('change', changeTemplate);
     document.getElementById('color-selector').addEventListener('input', changeColor);
+    document.getElementById('lock-toggle').addEventListener('change', (e) => lockOnExit = e.target.checked);
 
     // Start the animation loop
     animate();
@@ -659,6 +661,7 @@ function animate() {
 
         } else {
              // Default ambient rotation
+             // Always apply subtle rotation, even if locked (user request)
              particles.rotation.y += 0.0008; 
              particles.rotation.z += 0.0001; 
         }
@@ -816,10 +819,14 @@ function onResults(results) {
         handDistance = 0.5;
 
     } else {
-        // No hands detected - smoothly return to center
-        handDistance = 0.5;
-        handGesture = smoothGesture('neutral');
-        targetHandPosition.lerp(new THREE.Vector3(0, 0, 0), 0.1);
+        // No hands detected
+        if (!lockOnExit) {
+            // Smoothly return to center/neutral if NOT locked
+            handDistance = 0.5;
+            handGesture = smoothGesture('neutral');
+            targetHandPosition.lerp(new THREE.Vector3(0, 0, 0), 0.1);
+        }
+        
         lastHandPosition = null;
         gestureHistory = []; // Clear gesture history when no hands detected
     }
