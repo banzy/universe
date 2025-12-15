@@ -2,6 +2,7 @@
 let scene, camera, renderer;
 let particles, geometry, material;
 let bgParticles, bgGeometry, bgMaterial; // Background stars
+let sunCore; // Internal glowing core for compressed sun
 let basePositions; // Store the original shape positions
 let spherePositions; // Store the compressed sphere positions
 let currentTemplate = 'galaxy';
@@ -182,6 +183,19 @@ function init() {
     
     // Create background stars
     createBackgroundStars();
+
+    // Create Sun Core (hidden initially)
+    const coreGeo = new THREE.SphereGeometry(25, 32, 32);
+    const coreMat = new THREE.MeshBasicMaterial({
+        color: 0xff4500, // OrangeRed
+        transparent: true,
+        opacity: 0.4, // Reduced opacity
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+    });
+    sunCore = new THREE.Mesh(coreGeo, coreMat);
+    sunCore.scale.set(0, 0, 0);
+    scene.add(sunCore);
 
     // Event Listeners
     window.addEventListener('resize', onWindowResize, false);
@@ -755,12 +769,17 @@ function animate() {
         explodeUniverse();
     }
     
-    // 5. Gesture Responses (Morphing)
+    // 5. Gesture Responses (Morphing) & Core Animation
     const currentPositions = particles.geometry.attributes.position.array;
     const count = particleCount; // Optimization
     const morphSpeed = 0.08; // Slightly slower for dramatic effect
     
+    // Core animation logic
+    let targetCoreScale = 0;
+    
     if (handGesture === 'closed') {
+        targetCoreScale = 0.8 + Math.sin(time * 0.5) * 0.1; // Pulse, smaller base scale
+        
         // ✊ CLOSED FIST: Morph into Living Sun (Plasma Sphere)
         // We calculate the target position dynamically based on time
         
@@ -804,16 +823,28 @@ function animate() {
         particles.geometry.attributes.position.needsUpdate = true;
     } 
     else if (handGesture === 'open') { 
+        targetCoreScale = 0;
         // ✋ OPEN HAND: Reform the Galaxy (Return to original shape)
         for(let i = 0; i < count * 3; i++) {
             currentPositions[i] += (basePositions[i] - currentPositions[i]) * morphSpeed;
         }
         particles.geometry.attributes.position.needsUpdate = true;
     }
-    // NEUTRAL: Do nothing. Particles stay where they are (e.g., floating after explosion).
+    // NEUTRAL: targetScale 0
+    else {
+        targetCoreScale = 0;
+    }
+
+    // Animate Core Scale & Position
+    sunCore.scale.lerp(new THREE.Vector3(targetCoreScale, targetCoreScale, targetCoreScale), 0.1);
+    sunCore.position.copy(particles.position); // Core follows the main system center
+    sunCore.rotation.copy(particles.rotation); // Rotate with system
 
     // 6. Direct Hand Position Control - particles follow hand movement
     particles.position.lerp(targetHandPosition, positionSmoothing);
+    
+    // Update core position to allow it to move with hand logic if needed
+    // Actually particles.position matches hand, so sunCore following particles is correct.
 
     // 6. Render
     renderer.render(scene, camera);
