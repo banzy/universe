@@ -42,6 +42,12 @@ const positionScale = 200; // Scale factor to convert normalized hand position t
 let gestureHistory = [];
 const gestureHistorySize = 5; // Number of frames to consider for smoothing
 
+// Gesture hold time tracking to prevent accidental compression during movement
+let currentGestureType = 'neutral'; // Track the current stable gesture
+let gestureStartTime = 0; // Timestamp when current gesture first appeared
+const GESTURE_HOLD_THRESHOLD = 500; // Minimum time (ms) to hold 'closed' gesture before compression
+let confirmedGesture = 'neutral'; // The gesture that has been confirmed after hold time
+
 // Template cycling variables
 let lastTemplateChangeTime = 0;
 const TEMPLATE_CHANGE_COOLDOWN = 1000; // 1 second cooldown
@@ -1354,8 +1360,9 @@ function detectGesture(handLandmarks) {
 
 /**
  * Smooths gesture detection by using history to prevent flickering.
+ * Also implements hold time logic to prevent accidental compression during movement.
  * @param {string} newGesture - The newly detected gesture
- * @returns {string} The smoothed gesture result
+ * @returns {string} The smoothed and confirmed gesture result
  */
 function smoothGesture(newGesture) {
   gestureHistory.push(newGesture);
@@ -1379,7 +1386,29 @@ function smoothGesture(newGesture) {
     }
   }
 
-  return result;
+  // Gesture hold time logic
+  const now = Date.now();
+  
+  // If gesture changed, reset the timer
+  if (result !== currentGestureType) {
+    currentGestureType = result;
+    gestureStartTime = now;
+  }
+  
+  // For 'closed' gesture, require hold time before confirming
+  if (result === 'closed') {
+    const holdDuration = now - gestureStartTime;
+    if (holdDuration >= GESTURE_HOLD_THRESHOLD) {
+      confirmedGesture = 'closed';
+    }
+    // If not held long enough, maintain previous confirmed state
+    // (unless it was also 'closed', then keep it)
+  } else {
+    // For 'open', 'peace', and 'neutral', respond immediately
+    confirmedGesture = result;
+  }
+
+  return confirmedGesture;
 }
 
 /**
